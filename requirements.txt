@@ -1,11 +1,5 @@
 requests_oauthlib
-repustate
-winreg
-pymongo
-json     
+pymongo 
 requests
-bson
 googletrans
-sys
-calendar
-time
+dnspython

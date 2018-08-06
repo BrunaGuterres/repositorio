@@ -1,5 +1,4 @@
 from requests_oauthlib import OAuth1
-from repustate import Client
 import winreg
 import pymongo
 import json     
