@@ -3,3 +3,4 @@ pymongo
 requests
 googletrans
 dnspython
+winreg
