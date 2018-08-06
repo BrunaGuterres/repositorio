@@ -1,0 +1,11 @@
+requests_oauthlib
+repustate
+winreg
+pymongo
+json     
+requests
+bson
+googletrans
+sys
+calendar
+time
