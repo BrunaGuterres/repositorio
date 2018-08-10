@@ -3,7 +3,7 @@ import time
 
 while(True):
     atualiza.atualizaClientes()
-    time.sleep(28800)
+    time.sleep(18000)
 
 
 
