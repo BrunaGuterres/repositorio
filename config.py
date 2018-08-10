@@ -1,5 +1,4 @@
 from requests_oauthlib import OAuth1
-from repustate import Client
 import pymongo
 import os
 
@@ -15,12 +14,12 @@ def authTwitter():
 
     return auth
 
-def authRepustate():
+# def authRepustate():
     
-    #Le as chaves de acesso da API do Repustate. Devem ser setadas nas variaveis de ambiente do USUARIO com os nomes iguais aos das variaveis abaixo
-    REPUSTATE_KEY = os.environ['REPUSTATE_KEY']  
-    cliente = Client(api_key = REPUSTATE_KEY, version= 'v4')
-    return cliente
+#     #Le as chaves de acesso da API do Repustate. Devem ser setadas nas variaveis de ambiente do USUARIO com os nomes iguais aos das variaveis abaixo
+#     REPUSTATE_KEY = os.environ['REPUSTATE_KEY']  
+#     cliente = Client(api_key = REPUSTATE_KEY, version= 'v4')
+#     return cliente
 
 def authMongo():
     
