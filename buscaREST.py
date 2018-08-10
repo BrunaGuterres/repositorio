@@ -1,5 +1,11 @@
 from funcoesREST import *
-import urllib.parse
+import time
 
-atualiza.atualizaClientes()
+while(True):
+    atualiza.atualizaClientes()
+    time.sleep(28800)
+
+
+
+
                      
