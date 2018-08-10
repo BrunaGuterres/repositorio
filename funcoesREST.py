@@ -1,4 +1,5 @@
 from requests_oauthlib import OAuth1
+from repustate import Client
 import winreg
 import pymongo
 import json     
@@ -56,9 +57,12 @@ class mongoDB:
             clientes.append(cliente)
         return clientes
 
-    def insereDb (empresa, album, documento):
+    def insereDb (album, documento):
         print('InsereBanco')
-        album.update({"nome": empresa}, {"$set": {"analise": documento}})
+        album.insert_one(documento)
+
+    def atualizaCliente(album, empresa, documento):
+        album.replace_one({"nome": empresa}, documento)
 
 class funcoesTwitter:
 
@@ -126,10 +130,11 @@ class funcoesTwitter:
                 #O primeiro tweet que chega é o mais novo, logo pegamos o id
                 ultimo = twitte['id_str']
             #cria o dicionario com as informações desejada
-            dicionario = {'usuario':twitte['user']['name'],'estado':estado,'data':twitte['created_at'],'resultado':'','tweet':twitte['full_text']}
+            dicionario = {'usuario':twitte['user']['name'],'id': twitte['id_str'] ,'estado':estado,'data':twitte['created_at'],'resultado':'','tweet':twitte['full_text']}
             tw.append(dicionario)
         #Retorna o dicionario com todos os twittes e o último ID
         return (tw, ultimo)
+
     def veLimite():
         apiTwitter = funcoesTwitter.criaAPI()
         resultado=requests.get('https://api.twitter.com/1.1/application/rate_limit_status.json?resources=search', auth=apiTwitter).json()
@@ -152,3 +157,128 @@ def analisaSentimentos(tweets, bons, ruins, neutros):
         else:
             bons+=1
     return (tweets,bons, ruins, neutros)
+
+def analisaSentimentosMC(tweets, bons, ruins, neutros):
+    url = "http://api.meaningcloud.com/sentiment-2.1"
+    for tweet in tweets:
+            carga = authMeaningCloud(tweet['tweet'])
+            headers = {'content-type': 'application/x-www-form-urlencoded'}
+            sentimento = requests.request("POST", url, data=carga, headers=headers).json()
+            #Sleep para nao estourar a limitacao da API
+            time.sleep(0.5)
+            if(sentimento['score_tag'] == "P+" or sentimento['score_tag'] == "P"):
+                bons+=1
+                tweet['resultado']= "pos"
+            elif(sentimento['score_tag'] == "N+" or sentimento['score_tag'] == "N"):
+                ruins+=1
+                tweet['resultado']= "neg"
+            elif(sentimento['score_tag'] == "NEU" or sentimento['score_tag'] == "NONE"):
+                neutros+=1
+                tweet['resultado']= "neutral"
+    return (tweets,bons, ruins, neutros)
+
+class atualiza:    
+    def atualizaClientes():
+        #Cria API do Tweepy 
+        apiTwitter = funcoesTwitter.criaAPI()
+
+        #Lista de estados
+        estados=['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO',
+                'MA', 'MT', 'MS','MG', 'PA', 'PB', 'PR', 'PE', 'PI',
+                'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO']
+
+        #quantidade de tweets por estado
+        quantidade = 100
+
+        #Conecta ao album do banco
+        album = mongoDB.conectaBanco()
+
+        #busca Clientes
+        clientes = mongoDB.buscaBanco(album)
+        aux = 0
+        #Atualiza cada cliente no Banco
+        for cliente in clientes:
+            empresa = cliente['nome']
+            print('EMp: ' + empresa)
+            #Cria documento como uma cópia do atual cliente + atualizações
+            documento = atualiza.atualizaCliente(cliente, estados, apiTwitter, quantidade)
+            #Escreve o cliente atualizado no banco
+            mongoDB.atualizaCliente(album, empresa, documento)
+            print('escreveu' + str(aux))
+            aux+=1
+
+    def atualizaCliente(documento, estados, apiTwitter, quantidade):
+        #Define chaves de busca com base no banco
+        chaves = documento['tags']
+        for estado in estados:
+                query = funcoesTwitter.constroiQuery(estado, chaves)
+                ide = documento['analise'][estado]['ultimoId']
+                tweets, ultimo = funcoesTwitter.buscaTwittes(query, apiTwitter, quantidade, ide, estado)
+                print( documento['nome'] + '  ' + estado + ' : ' + str(len(tweets)))
+                if(len(tweets)!=0):
+                        #Atualiza o último id
+                        documento['analise'][estado]['ultimoId'] = ultimo
+                        #Atualiza a quantidade de tweets do banco
+                        documento['analise'][estado]['quantidade'] = documento['analise'][estado]['quantidade'] + len(tweets)
+                        #Pega a quantidade de bons ruins e neutros a fim de atualizar com base na analise de sentimento
+                        bons = documento['analise'][estado]['bons']
+                        ruins = documento['analise'][estado]['ruins']
+                        neutros = documento['analise'][estado]['neutros']
+                        #Analisa sentimentos e gera os valores de bons ruins e neutros atualizados
+                        (tweets, bons, ruins, neutros) = analisaSentimentosMC(tweets, bons, ruins, neutros)
+                        #atualiza valores de bons ruins e neutros no documento
+                        documento['analise'][estado]['bons'] = bons
+                        documento['analise'][estado]['ruins'] = ruins
+                        documento['analise'][estado]['neutros'] = neutros
+                        #Adiciona ao documento os tweets já analisados
+                        for tweet in tweets:
+                                documento['tweets'].append(tweet)
+        return documento
+
+class novoCliente:
+    #gera Tag com base no nome
+    def geraTags(chaves):
+        auxChaves = []
+        for chave in chaves:
+            if ' ' in chave:
+                auxChaves.append('#' + chave.replace(' ', ''))
+                auxChaves.append('#' + chave.replace(' ', '_'))
+                auxChaves.append('@' + chave.replace(' ', '_'))
+            else:
+                auxChaves.append('#'+chave)
+                auxChaves.append('@'+chave)
+
+            auxChaves.append(chave)
+        return auxChaves
+
+    def novoCliente(nome, tags):
+        #Lista de estados
+        estados=['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO',
+                'MA', 'MT', 'MS','MG', 'PA', 'PB', 'PR', 'PE', 'PI',
+                'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO']
+        
+        #Cria API do Tweepy 
+        apiTwitter = funcoesTwitter.criaAPI()
+        
+        #define quantidade de tweets a serem buscados por estado
+        quantidade = 100
+
+        #Cria estrutura do cliente a ser inserido no banco
+        cliente = funcoesTwitter.montaDicionario(estados)
+
+        cliente['nome'] = nome
+
+        #Se nenhuma tag foi informada, gera as tags com base no nome
+        if(not(tags)):
+            tags = geraTags(nome)
+        for tag in tags:
+            cliente['tags'].append(tag)
+                
+        #Atualiza cliente com base em novos tweets e analises
+        documento = atualiza.atualizaCliente(cliente, estados, apiTwitter, quantidade)
+
+        #Conecta no Banco
+        album = mongoDB.conectaBanco()
+
+        #Insere no Banco
+        mongoDB.insereDb (album, documento)
