@@ -11,7 +11,7 @@ import time
 import gspread                                                
 from oauth2client.service_account import ServiceAccountCredentials 
 
-#Cria diciionário com os ids dos estamos para acelerar as buscas utilizando tweepy
+#Cria diciionÃ¡rio com os ids dos estamos para acelerar as buscas utilizando tweepy
 estadosId = {'AC': '3c42576594e748ff',
             'AL': '35caf3cf30eba1ad',
             'AP': '72c1b85a11f23685',
@@ -40,7 +40,7 @@ estadosId = {'AC': '3c42576594e748ff',
             'SE': 'ec32cf627c142984',
             'TO': '9c0db54ac37eb12e'}
 
-#Funções de conexão, busca e atualização no banco
+#FunÃ§Ãµes de conexÃ£o, busca e atualizaÃ§Ã£o no banco
 class mongoDB:
     
     def conectaBanco():
@@ -62,6 +62,7 @@ class mongoDB:
         album.insert_one(documento)
 
     def atualizaCliente(album, empresa, documento):
+        print('Atualiza Cliente')
         album.replace_one({"nome": empresa}, documento)
 
 class funcoesTwitter:
@@ -84,7 +85,7 @@ class funcoesTwitter:
         #Encontra o ID referente ao estado
         lugarId = estadosId[estado]                                                 
 
-        #Constrói Query de Busca 
+        #ConstrÃ³i Query de Busca 
         parametros = "place:" + lugarId + " ("
         aux = 0
         for chave in chaves:
@@ -105,34 +106,37 @@ class funcoesTwitter:
         #monta carga com a query de busca e parametros
         carga = {'q': query, 'tweet_mode': 'extended', 'lang': 'pt', 'result_type': 'recent', 'count': quantidade, 'since_id': ide ,'include_entities':'false'}
 
-        #Tenta buscar Tweets, senão espera os 15 min  tenta novamente        
+        #Tenta buscar Tweets, senÃ£o espera os 15 min  tenta novamente        
         try:
+            print('try')
             twittes = requests.get('https://api.twitter.com/1.1/search/tweets.json', params=carga, auth=auth).json()
             aux = twittes["statuses"]
         except:
-            #Se não deu, verifica o tempo necessário para novas requisições e aguarda
+            print('except')
+            #Se nÃ£o deu, verifica o tempo necessÃ¡rio para novas requisiÃ§Ãµes e aguarda
                 #Ve os limites de busca
             resultado=requests.get('https://api.twitter.com/1.1/application/rate_limit_status.json?resources=search', auth=auth).json()
                 #Ve o tempo em segundos desde 1970
-            tempo_reset=int(resultado['resources']['search']['/search/tweets']['reset'])    #Pegamos o tempo esperado pro próximo reset
+            tempo_reset=int(resultado['resources']['search']['/search/tweets']['reset'])    #Pegamos o tempo esperado pro prÃ³ximo reset
             tempo_atual=calendar.timegm(time.gmtime())                                      #O tempo atual
-            espera=tempo_reset-tempo_atual+10                                               #Tempo necessário mais 10 segundos
+            espera=tempo_reset-tempo_atual+10                                               #Tempo necessÃ¡rio mais 10 segundos
             print('Aguardando '+str(espera)+' segundos.')
             time.sleep(espera)        
             twittes = requests.get('https://api.twitter.com/1.1/search/tweets.json', params=carga, auth=auth).json()
             
-        #cria variavel para anotar o último tweet
+        #cria variavel para anotar o Ãºltimo tweet
         ultimo = 0
-        #Anota as informações desejadas dos twittes
+        #Anota as informaÃ§Ãµes desejadas dos twittes
         tw = []
-        for twitte in twittes["statuses"]:
-            if(ultimo==0):
-                #O primeiro tweet que chega é o mais novo, logo pegamos o id
-                ultimo = twitte['id_str']
-            #cria o dicionario com as informações desejada
-            dicionario = {'usuario':twitte['user']['name'],'id': twitte['id_str'] ,'estado':estado,'data':twitte['created_at'],'resultado':'','tweet':twitte['full_text']}
-            tw.append(dicionario)
-        #Retorna o dicionario com todos os twittes e o último ID
+        if(len(twittes['statuses'])):
+            for twitte in twittes['statuses']:
+                if(ultimo==0):
+                    #O primeiro tweet que chega Ã© o mais novo, logo pegamos o id
+                    ultimo = twitte['id_str']
+                #cria o dicionario com as informaÃ§Ãµes desejada
+                dicionario = {'usuario':twitte['user']['name'],'id': twitte['id_str'] ,'estado':estado,'data':twitte['created_at'],'resultado':0, 'ironia': '','tweet':twitte['full_text']}
+                tw.append(dicionario)
+        #Retorna o dicionario com todos os twittes e o Ãºltimo ID
         return (tw, ultimo)
 
     def veLimite():
@@ -143,7 +147,7 @@ class funcoesTwitter:
        
 def analisaSentimentos(tweets, bons, ruins, neutros):
     translator = Translator()   #Chamamos nosso tradutor
-    sens=[]                     #Onde vamos guardar nossa tradução
+    sens=[]                     #Onde vamos guardar nossa traduÃ§Ã£o
     non_bmp_map = dict.fromkeys(range(0x10000, sys.maxunicode + 1), 0xfffd) 
     for tweet in tweets:
         trad=translator.translate(tweet['tweet'].translate(non_bmp_map)).text   #Traduzimos o texto
@@ -166,15 +170,23 @@ def analisaSentimentosMC(tweets, bons, ruins, neutros):
             sentimento = requests.request("POST", url, data=carga, headers=headers).json()
             #Sleep para nao estourar a limitacao da API
             time.sleep(0.5)
-            if(sentimento['score_tag'] == "P+" or sentimento['score_tag'] == "P"):
+            
+            if(sentimento['score_tag'] == "P+"):
+                tweet['resultado']= 10
                 bons+=1
-                tweet['resultado']= "pos"
-            elif(sentimento['score_tag'] == "N+" or sentimento['score_tag'] == "N"):
+            elif (sentimento['score_tag'] == "P"):
+                tweet['resultado']= 5
+                bons+=1
+            elif(sentimento['score_tag'] == "N+"):
+                tweet['resultado']= -10
                 ruins+=1
-                tweet['resultado']= "neg"
+            elif(sentimento['score_tag'] == "N"):
+                ruins+=1
+                tweet['resultado']= -5
             elif(sentimento['score_tag'] == "NEU" or sentimento['score_tag'] == "NONE"):
                 neutros+=1
-                tweet['resultado']= "neutral"
+                tweet['resultado']= 0
+            tweet['ironia']= sentimento['irony']
     return (tweets,bons, ruins, neutros)
 
 class atualiza:    
@@ -200,7 +212,7 @@ class atualiza:
         for cliente in clientes:
             empresa = cliente['nome']
             print('EMp: ' + empresa)
-            #Cria documento como uma cópia do atual cliente + atualizações
+            #Cria documento como uma cÃ³pia do atual cliente + atualizaÃ§Ãµes
             documento = atualiza.atualizaCliente(cliente, estados, apiTwitter, quantidade)
             #Escreve o cliente atualizado no banco
             mongoDB.atualizaCliente(album, empresa, documento)
@@ -216,7 +228,7 @@ class atualiza:
                 tweets, ultimo = funcoesTwitter.buscaTwittes(query, apiTwitter, quantidade, ide, estado)
                 print( documento['nome'] + '  ' + estado + ' : ' + str(len(tweets)))
                 if(len(tweets)!=0):
-                        #Atualiza o último id
+                        #Atualiza o Ãºltimo id
                         documento['analise'][estado]['ultimoId'] = ultimo
                         #Atualiza a quantidade de tweets do banco
                         documento['analise'][estado]['quantidade'] = documento['analise'][estado]['quantidade'] + len(tweets)
@@ -230,7 +242,7 @@ class atualiza:
                         documento['analise'][estado]['bons'] = bons
                         documento['analise'][estado]['ruins'] = ruins
                         documento['analise'][estado]['neutros'] = neutros
-                        #Adiciona ao documento os tweets já analisados
+                        #Adiciona ao documento os tweets jÃ¡ analisados
                         for tweet in tweets:
                                 documento['tweets'].append(tweet)
         return documento

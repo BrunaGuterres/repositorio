@@ -17,7 +17,7 @@ documento = funcoesTwitter.montaDicionario(estados)
 
 client = authMongo()
 banco = client['dbteste']
-album = banco['Clientes']
+album = banco['clientesDados']
 
 documentos = []
 for cliente in clientes:

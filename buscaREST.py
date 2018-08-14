@@ -4,7 +4,7 @@ import time
 while(True):
     planilha()
     atualiza.atualizaClientes()
-    time.sleep(28800)
+    time.sleep(18000)
 
 
 
