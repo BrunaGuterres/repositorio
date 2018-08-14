@@ -8,6 +8,8 @@ from googletrans import Translator
 import sys
 import calendar
 import time
+import gspread                                                
+from oauth2client.service_account import ServiceAccountCredentials 
 
 #Cria diciionário com os ids dos estamos para acelerar as buscas utilizando tweepy
 estadosId = {'AC': '3c42576594e748ff',
@@ -44,7 +46,7 @@ class mongoDB:
     def conectaBanco():
         client = authMongo()
         banco = client['dbteste']
-        album = banco['clientesTemp']
+        album = banco['clientesDados']
         print('Conecta Banco')
         return album
 
@@ -280,3 +282,69 @@ class novoCliente:
 
         #Insere no Banco
         mongoDB.insereDb (album, documento)
+
+
+def planilha():
+#Vamos montar nossa private key do google
+    var_amb=os.environ["private_key"]   #Recebemos a variável
+    dividido=var_amb.split("\\n")       #Dividimos onde tem \n
+    chave=""                            #Onde vamos remontar
+    for linha in dividido:
+        if (len(linha)>0):              #Nossa última linha é apenas '' e queremos deixar assim
+            chave=chave+linha+"\n"
+    login = {                                                   #Google : Dados do API do Google
+    "type": os.environ['type'],
+    "private_key_id": os.environ['private_key_id'],
+    "private_key": chave,
+    "client_email": os.environ['client_email'],
+    "client_id": os.environ['client_id']}
+
+    #Lista das unidades federativas
+    UFs=['AC','AL','AP','AM','BA',  
+        'CE','DF','ES','GO','MA',
+        'MT','MS','MG','PA','PB',
+        'PR','PE','PI','RJ','RN',
+        'RS','RO','RR','SC','SP',
+        'SE','TO']
+
+    #Precisamos usar o scope ao adquirir um token de acesso
+    scope = ['https://spreadsheets.google.com/feeds',
+            'https://www.googleapis.com/auth/drive']
+
+    #Obtemos as credenciais
+    credenciais = ServiceAccountCredentials.from_json_keyfile_dict(login, scope)
+
+    google = gspread.authorize(credenciais)     #Conectamos
+
+    planilha = google.open("Clientes")      #Abrimos a pagina 1 do arquivo
+    
+    colecao = mongoDB.conectaBanco()   #Conectamos ao Mongo
+
+    clientes=colecao.find({})               #Então vamos pegar os dados do nosso banco de dados
+
+    #Vamos percorrer os clientes
+    for cliente in clientes:
+        time.sleep(100)
+        #Vamos pegar a folha correspondente
+        nome=cliente['nome']        #Nome do nosso cliente
+        folha=planilha.worksheet(nome)
+        print(nome)
+        #Vamos checar estado por estado
+        c=2     #Contador da linha
+        for UF in UFs:
+            total=cliente['analise'][UF]['quantidade'] #Quantidade total de tuites
+            soma=0      #Vamos somar os tuites
+            for tui in cliente['tweets']:
+                if (tui['estado']==UF):
+                    #print(tui['resultado'])
+                    soma=soma+int(tui['resultado'])
+                
+            if (total!=0):
+                media=soma/float(total)
+            else:
+                media=0
+            folha.update_cell(c, 3,total)               #Atualizar a quantidade
+            folha.update_cell(c, 2,media)               #Atualizar a media
+            c=c+1   #Contador
+        
+      

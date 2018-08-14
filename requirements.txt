@@ -3,3 +3,5 @@ pymongo
 requests
 googletrans
 dnspython
+gspread
+oauth2client
