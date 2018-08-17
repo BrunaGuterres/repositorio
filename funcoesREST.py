@@ -8,6 +8,8 @@ from googletrans import Translator
 import sys
 import calendar
 import time
+import gspread                                                
+from oauth2client.service_account import ServiceAccountCredentials 
 
 #Cria diciionÃ¡rio com os ids dos estamos para acelerar as buscas utilizando tweepy
 estadosId = {'AC': '3c42576594e748ff',
@@ -142,50 +144,50 @@ class funcoesTwitter:
         resultado=requests.get('https://api.twitter.com/1.1/application/rate_limit_status.json?resources=search', auth=apiTwitter).json()
         print(resultado)
 
-       
-def analisaSentimentos(tweets, bons, ruins, neutros):
-    translator = Translator()   #Chamamos nosso tradutor
-    sens=[]                     #Onde vamos guardar nossa traduÃ§Ã£o
-    non_bmp_map = dict.fromkeys(range(0x10000, sys.maxunicode + 1), 0xfffd) 
-    for tweet in tweets:
-        trad=translator.translate(tweet['tweet'].translate(non_bmp_map)).text   #Traduzimos o texto
-        sentimento=requests.post("http://text-processing.com/api/sentiment/",{"text":trad}).json()['label'] #Analisamos
-        tweet['resultado']=sentimento                                                                       #Atualizamos
-        # sens.append(sentimento)    
-        if (sentimento =="neg"):
-            ruins+=1
-        elif(sentimento =="neutral"):
-            neutros+=1
-        else:
-            bons+=1
-    return (tweets,bons, ruins, neutros)
-
-def analisaSentimentosMC(tweets, bons, ruins, neutros):
-    url = "http://api.meaningcloud.com/sentiment-2.1"
-    for tweet in tweets:
-            carga = authMeaningCloud(tweet['tweet'])
-            headers = {'content-type': 'application/x-www-form-urlencoded'}
-            sentimento = requests.request("POST", url, data=carga, headers=headers).json()
-            #Sleep para nao estourar a limitacao da API
-            time.sleep(0.5)
-            
-            if(sentimento['score_tag'] == "P+"):
-                tweet['resultado']= 10
-                bons+=1
-            elif (sentimento['score_tag'] == "P"):
-                tweet['resultado']= 5
-                bons+=1
-            elif(sentimento['score_tag'] == "N+"):
-                tweet['resultado']= -10
+class analises:        
+    def analisaSentimentos(tweets, bons, ruins, neutros):
+        translator = Translator()   #Chamamos nosso tradutor
+        sens=[]                     #Onde vamos guardar nossa traduÃ§Ã£o
+        non_bmp_map = dict.fromkeys(range(0x10000, sys.maxunicode + 1), 0xfffd) 
+        for tweet in tweets:
+            trad=translator.translate(tweet['tweet'].translate(non_bmp_map)).text   #Traduzimos o texto
+            sentimento=requests.post("http://text-processing.com/api/sentiment/",{"text":trad}).json()['label'] #Analisamos
+            tweet['resultado']=sentimento                                                                       #Atualizamos
+            # sens.append(sentimento)    
+            if (sentimento =="neg"):
                 ruins+=1
-            elif(sentimento['score_tag'] == "N"):
-                ruins+=1
-                tweet['resultado']= -5
-            elif(sentimento['score_tag'] == "NEU" or sentimento['score_tag'] == "NONE"):
+            elif(sentimento =="neutral"):
                 neutros+=1
-                tweet['resultado']= 0
-            tweet['ironia']= sentimento['irony']
-    return (tweets,bons, ruins, neutros)
+            else:
+                bons+=1
+        return (tweets,bons, ruins, neutros)
+
+    def analisaSentimentosMC(tweets, bons, ruins, neutros):
+        url = "http://api.meaningcloud.com/sentiment-2.1"
+        for tweet in tweets:
+                carga = authMeaningCloud(tweet['tweet'])
+                headers = {'content-type': 'application/x-www-form-urlencoded'}
+                sentimento = requests.request("POST", url, data=carga, headers=headers).json()
+                #Sleep para nao estourar a limitacao da API
+                time.sleep(0.5)
+                
+                if(sentimento['score_tag'] == "P+"):
+                    tweet['resultado']= 10
+                    bons+=1
+                elif (sentimento['score_tag'] == "P"):
+                    tweet['resultado']= 5
+                    bons+=1
+                elif(sentimento['score_tag'] == "N+"):
+                    tweet['resultado']= -10
+                    ruins+=1
+                elif(sentimento['score_tag'] == "N"):
+                    ruins+=1
+                    tweet['resultado']= -5
+                elif(sentimento['score_tag'] == "NEU" or sentimento['score_tag'] == "NONE"):
+                    neutros+=1
+                    tweet['resultado']= 0
+                tweet['ironia']= sentimento['irony']
+        return (tweets,bons, ruins, neutros)
 
 class atualiza:    
     def atualizaClientes():
@@ -235,7 +237,7 @@ class atualiza:
                         ruins = documento['analise'][estado]['ruins']
                         neutros = documento['analise'][estado]['neutros']
                         #Analisa sentimentos e gera os valores de bons ruins e neutros atualizados
-                        (tweets, bons, ruins, neutros) = analisaSentimentosMC(tweets, bons, ruins, neutros)
+                        (tweets, bons, ruins, neutros) = analises.analisaSentimentosMC(tweets, bons, ruins, neutros)
                         #atualiza valores de bons ruins e neutros no documento
                         documento['analise'][estado]['bons'] = bons
                         documento['analise'][estado]['ruins'] = ruins
@@ -292,3 +294,71 @@ class novoCliente:
 
         #Insere no Banco
         mongoDB.insereDb (album, documento)
+
+
+def planilha():
+#Vamos montar nossa private key do google
+    var_amb=os.environ["private_key"]   #Recebemos a variável
+    dividido=var_amb.split("\\n")       #Dividimos onde tem \n
+    chave=""                            #Onde vamos remontar
+    for linha in dividido:
+        if (len(linha)>0):              #Nossa última linha é apenas '' e queremos deixar assim
+            chave=chave+linha+"\n"
+    login = {                                                   #Google : Dados do API do Google
+    "type": os.environ['type'],
+    "private_key_id": os.environ['private_key_id'],
+    "private_key": chave,
+    "client_email": os.environ['client_email'],
+    "client_id": os.environ['client_id']}
+
+    #Lista das unidades federativas
+    UFs=['AC','AL','AP','AM','BA',  
+        'CE','DF','ES','GO','MA',
+        'MT','MS','MG','PA','PB',
+        'PR','PE','PI','RJ','RN',
+        'RS','RO','RR','SC','SP',
+        'SE','TO']
+
+    #Precisamos usar o scope ao adquirir um token de acesso
+    scope = ['https://spreadsheets.google.com/feeds',
+            'https://www.googleapis.com/auth/drive']
+
+    #Obtemos as credenciais
+    credenciais = ServiceAccountCredentials.from_json_keyfile_dict(login, scope)
+
+    google = gspread.authorize(credenciais)     #Conectamos
+
+    planilha = google.open("Clientes")      #Abrimos a pagina 1 do arquivo
+    
+    colecao = mongoDB.conectaBanco()   #Conectamos ao Mongo
+
+    clientes=colecao.find({})               #Então vamos pegar os dados do nosso banco de dados
+
+    #Vamos percorrer os clientes
+    for cliente in clientes:
+        #Vamos pegar a folha correspondente
+        nome=cliente['nome']        #Nome do nosso cliente
+        folha=planilha.worksheet(nome)
+        time.sleep(1.05)
+        print(nome)
+        #Vamos checar estado por estado
+        c=2     #Contador da linha
+        for UF in UFs:
+            total=cliente['analise'][UF]['quantidade'] #Quantidade total de tuites
+            soma=0      #Vamos somar os tuites
+            for tui in cliente['tweets']:
+                if (tui['estado']==UF):
+                    #print(tui['resultado'])
+                    soma=soma+int(tui['resultado'])
+                
+            if (total!=0):
+                media=soma/float(total)
+            else:
+                media=0
+            folha.update_cell(c, 3,total)               #Atualizar a quantidade
+            time.sleep(1.05)
+            folha.update_cell(c, 2,media)               #Atualizar a media
+            time.sleep(1.05)
+            c=c+1   #Contador
+        
+      
