@@ -339,7 +339,7 @@ def planilha():
         #Vamos pegar a folha correspondente
         nome=cliente['nome']        #Nome do nosso cliente
         folha=planilha.worksheet(nome)
-        time.sleep(1.05)
+        time.sleep(1.02)
         print(nome)
         #Vamos checar estado por estado
         c=2     #Contador da linha
@@ -356,9 +356,9 @@ def planilha():
             else:
                 media=0
             folha.update_cell(c, 3,total)               #Atualizar a quantidade
-            time.sleep(1.05)
+            time.sleep(1.02)
             folha.update_cell(c, 2,media)               #Atualizar a media
-            time.sleep(1.05)
+            time.sleep(1.02)
             c=c+1   #Contador
         
       
