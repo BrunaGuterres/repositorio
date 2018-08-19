@@ -144,50 +144,50 @@ class funcoesTwitter:
         resultado=requests.get('https://api.twitter.com/1.1/application/rate_limit_status.json?resources=search', auth=apiTwitter).json()
         print(resultado)
 
-       
-def analisaSentimentos(tweets, bons, ruins, neutros):
-    translator = Translator()   #Chamamos nosso tradutor
-    sens=[]                     #Onde vamos guardar nossa traduÃ§Ã£o
-    non_bmp_map = dict.fromkeys(range(0x10000, sys.maxunicode + 1), 0xfffd) 
-    for tweet in tweets:
-        trad=translator.translate(tweet['tweet'].translate(non_bmp_map)).text   #Traduzimos o texto
-        sentimento=requests.post("http://text-processing.com/api/sentiment/",{"text":trad}).json()['label'] #Analisamos
-        tweet['resultado']=sentimento                                                                       #Atualizamos
-        # sens.append(sentimento)    
-        if (sentimento =="neg"):
-            ruins+=1
-        elif(sentimento =="neutral"):
-            neutros+=1
-        else:
-            bons+=1
-    return (tweets,bons, ruins, neutros)
-
-def analisaSentimentosMC(tweets, bons, ruins, neutros):
-    url = "http://api.meaningcloud.com/sentiment-2.1"
-    for tweet in tweets:
-            carga = authMeaningCloud(tweet['tweet'])
-            headers = {'content-type': 'application/x-www-form-urlencoded'}
-            sentimento = requests.request("POST", url, data=carga, headers=headers).json()
-            #Sleep para nao estourar a limitacao da API
-            time.sleep(0.5)
-            
-            if(sentimento['score_tag'] == "P+"):
-                tweet['resultado']= 10
-                bons+=1
-            elif (sentimento['score_tag'] == "P"):
-                tweet['resultado']= 5
-                bons+=1
-            elif(sentimento['score_tag'] == "N+"):
-                tweet['resultado']= -10
+class analises:        
+    def analisaSentimentos(tweets, bons, ruins, neutros):
+        translator = Translator()   #Chamamos nosso tradutor
+        sens=[]                     #Onde vamos guardar nossa traduÃ§Ã£o
+        non_bmp_map = dict.fromkeys(range(0x10000, sys.maxunicode + 1), 0xfffd) 
+        for tweet in tweets:
+            trad=translator.translate(tweet['tweet'].translate(non_bmp_map)).text   #Traduzimos o texto
+            sentimento=requests.post("http://text-processing.com/api/sentiment/",{"text":trad}).json()['label'] #Analisamos
+            tweet['resultado']=sentimento                                                                       #Atualizamos
+            # sens.append(sentimento)    
+            if (sentimento =="neg"):
                 ruins+=1
-            elif(sentimento['score_tag'] == "N"):
-                ruins+=1
-                tweet['resultado']= -5
-            elif(sentimento['score_tag'] == "NEU" or sentimento['score_tag'] == "NONE"):
+            elif(sentimento =="neutral"):
                 neutros+=1
-                tweet['resultado']= 0
-            tweet['ironia']= sentimento['irony']
-    return (tweets,bons, ruins, neutros)
+            else:
+                bons+=1
+        return (tweets,bons, ruins, neutros)
+
+    def analisaSentimentosMC(tweets, bons, ruins, neutros):
+        url = "http://api.meaningcloud.com/sentiment-2.1"
+        for tweet in tweets:
+                carga = authMeaningCloud(tweet['tweet'])
+                headers = {'content-type': 'application/x-www-form-urlencoded'}
+                sentimento = requests.request("POST", url, data=carga, headers=headers).json()
+                #Sleep para nao estourar a limitacao da API
+                time.sleep(0.5)
+                
+                if(sentimento['score_tag'] == "P+"):
+                    tweet['resultado']= 10
+                    bons+=1
+                elif (sentimento['score_tag'] == "P"):
+                    tweet['resultado']= 5
+                    bons+=1
+                elif(sentimento['score_tag'] == "N+"):
+                    tweet['resultado']= -10
+                    ruins+=1
+                elif(sentimento['score_tag'] == "N"):
+                    ruins+=1
+                    tweet['resultado']= -5
+                elif(sentimento['score_tag'] == "NEU" or sentimento['score_tag'] == "NONE"):
+                    neutros+=1
+                    tweet['resultado']= 0
+                tweet['ironia']= sentimento['irony']
+        return (tweets,bons, ruins, neutros)
 
 class atualiza:    
     def atualizaClientes():
@@ -237,7 +237,7 @@ class atualiza:
                         ruins = documento['analise'][estado]['ruins']
                         neutros = documento['analise'][estado]['neutros']
                         #Analisa sentimentos e gera os valores de bons ruins e neutros atualizados
-                        (tweets, bons, ruins, neutros) = analisaSentimentosMC(tweets, bons, ruins, neutros)
+                        (tweets, bons, ruins, neutros) = analises.analisaSentimentosMC(tweets, bons, ruins, neutros)
                         #atualiza valores de bons ruins e neutros no documento
                         documento['analise'][estado]['bons'] = bons
                         documento['analise'][estado]['ruins'] = ruins
@@ -336,15 +336,19 @@ def planilha():
 
     #Vamos percorrer os clientes
     for cliente in clientes:
-        time.sleep(100)
         #Vamos pegar a folha correspondente
         nome=cliente['nome']        #Nome do nosso cliente
         folha=planilha.worksheet(nome)
+        time.sleep(1.05)
         print(nome)
         #Vamos checar estado por estado
         c=2     #Contador da linha
         for UF in UFs:
             total=cliente['analise'][UF]['quantidade'] #Quantidade total de tuites
+            bons  = cliente['analise'][UF]['bons'] #Quantidade total de bons para aquela empresa
+            ruins = cliente['analise'][UF]['ruins'] #Quantidade total de tuites
+            neutros = cliente['analise'][UF]['neutros'] #Quantidade total de tuites
+
             soma=0      #Vamos somar os tuites
             for tui in cliente['tweets']:
                 if (tui['estado']==UF):
@@ -355,8 +359,16 @@ def planilha():
                 media=soma/float(total)
             else:
                 media=0
+            folha.update_cell(c, 6,neutros)               #Atualizar os neutros
+            time.sleep(1.05)  
+            folha.update_cell(c, 5,ruins)               #Atualizar os ruins
+            time.sleep(1.05)    
+            folha.update_cell(c, 4,bons)               #Atualizar  os bons
+            time.sleep(1.05)    
             folha.update_cell(c, 3,total)               #Atualizar a quantidade
+            time.sleep(1.05)
             folha.update_cell(c, 2,media)               #Atualizar a media
+            time.sleep(1.05)
             c=c+1   #Contador
         
       
