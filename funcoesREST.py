@@ -10,6 +10,7 @@ import calendar
 import time
 import gspread                                                
 from oauth2client.service_account import ServiceAccountCredentials 
+import datetime as dt
 
 #Cria diciionÃ¡rio com os ids dos estamos para acelerar as buscas utilizando tweepy
 estadosId = {'AC': '3c42576594e748ff',
@@ -102,7 +103,7 @@ class funcoesTwitter:
         #auth - acesso ao api do Twitter
         #quantidade de twittes a serem buscados
         #id do twitte mais novo cadastrado
-
+              
         #monta carga com a query de busca e parametros
         carga = {'q': query, 'tweet_mode': 'extended', 'lang': 'pt', 'result_type': 'recent', 'count': quantidade, 'since_id': ide ,'include_entities':'false'}
 
@@ -119,7 +120,7 @@ class funcoesTwitter:
                 #Ve o tempo em segundos desde 1970
             tempo_reset=int(resultado['resources']['search']['/search/tweets']['reset'])    #Pegamos o tempo esperado pro prÃ³ximo reset
             tempo_atual=calendar.timegm(time.gmtime())                                      #O tempo atual
-            espera=tempo_reset-tempo_atual+10                                               #Tempo necessÃ¡rio mais 10 segundos
+            espera=tempo_reset-tempo_atual+15                                               #Tempo necessÃ¡rio mais 10 segundos
             print('Aguardando '+str(espera)+' segundos.')
             time.sleep(espera)        
             twittes = requests.get('https://api.twitter.com/1.1/search/tweets.json', params=carga, auth=auth).json()
@@ -162,31 +163,73 @@ class analises:
                 bons+=1
         return (tweets,bons, ruins, neutros)
 
-    def analisaSentimentosMC(tweets, bons, ruins, neutros):
+    def analisaSentimentosMC(empresa, tweets, bons, ruins, neutros):
         url = "http://api.meaningcloud.com/sentiment-2.1"
+
+        #Conecta ao google sheets
+        google = planilhas.conecta()
+        #Define a planilha e a folha a serem utilizadas
+        planilha = google.open("Tweets")
+        folha=planilha.worksheet('Tweets')
+        time.sleep(1.05)
+
         for tweet in tweets:
+                linha = []
+                linha.append(tweet['id'])
+                linha.append(empresa)
+                linha.append(tweet['estado'])
+                #Transforma o formato da data para um formato aceitável no tableau
+                data = dt.datetime.strptime(tweet['data'], '%a %b %d %H:%M:%S +0000 %Y').date()
+                linha.append(str(data))   
+
                 carga = authMeaningCloud(tweet['tweet'])
                 headers = {'content-type': 'application/x-www-form-urlencoded'}
                 sentimento = requests.request("POST", url, data=carga, headers=headers).json()
                 #Sleep para nao estourar a limitacao da API
-                time.sleep(0.5)
+                #time.sleep(0.5)
                 
                 if(sentimento['score_tag'] == "P+"):
-                    tweet['resultado']= 10
+                    resultado = 10
+                    tweet['resultado']= resultado
                     bons+=1
+                    #Coloca resultado e classificação na linha
+                    linha.append(resultado)
+                    linha.append("Bom")
+                    
                 elif (sentimento['score_tag'] == "P"):
-                    tweet['resultado']= 5
+                    resultado = 5
+                    tweet['resultado']= resultado
                     bons+=1
+                    #Coloca resultado e classificação na linha
+                    linha.append(resultado)
+                    linha.append("Bom")
+
                 elif(sentimento['score_tag'] == "N+"):
-                    tweet['resultado']= -10
+                    resultado = -10
+                    tweet['resultado']= resultado
                     ruins+=1
+                    #Coloca resultado e classificação na linha
+                    linha.append(resultado)
+                    linha.append("Ruim")
                 elif(sentimento['score_tag'] == "N"):
+                    resultado = -5
+                    tweet['resultado']= resultado
                     ruins+=1
-                    tweet['resultado']= -5
+                    #Coloca resultado e classificação na linha
+                    linha.append(resultado)
+                    linha.append("Ruim")
+
                 elif(sentimento['score_tag'] == "NEU" or sentimento['score_tag'] == "NONE"):
+                    resultado = 0
+                    tweet['resultado']= resultado
                     neutros+=1
-                    tweet['resultado']= 0
+                    #Coloca resultado e classificação na linha
+                    linha.append(resultado)
+                    linha.append("Neutro")
                 tweet['ironia']= sentimento['irony']
+                print(linha)
+                folha.append_row(linha)
+                time.sleep(1.05)
         return (tweets,bons, ruins, neutros)
 
 class atualiza:    
@@ -212,14 +255,15 @@ class atualiza:
         for cliente in clientes:
             empresa = cliente['nome']
             print('EMp: ' + empresa)
+            
             #Cria documento como uma cÃ³pia do atual cliente + atualizaÃ§Ãµes
-            documento = atualiza.atualizaCliente(cliente, estados, apiTwitter, quantidade)
+            documento = atualiza.atualizaCliente(empresa, cliente, estados, apiTwitter, quantidade)
             #Escreve o cliente atualizado no banco
             mongoDB.atualizaCliente(album, empresa, documento)
             print('escreveu' + str(aux))
             aux+=1
 
-    def atualizaCliente(documento, estados, apiTwitter, quantidade):
+    def atualizaCliente(empresa, documento, estados, apiTwitter, quantidade):
         #Define chaves de busca com base no banco
         chaves = documento['tags']
         for estado in estados:
@@ -237,7 +281,7 @@ class atualiza:
                         ruins = documento['analise'][estado]['ruins']
                         neutros = documento['analise'][estado]['neutros']
                         #Analisa sentimentos e gera os valores de bons ruins e neutros atualizados
-                        (tweets, bons, ruins, neutros) = analises.analisaSentimentosMC(tweets, bons, ruins, neutros)
+                        (tweets, bons, ruins, neutros) = analises.analisaSentimentosMC(empresa, tweets, bons, ruins, neutros)
                         #atualiza valores de bons ruins e neutros no documento
                         documento['analise'][estado]['bons'] = bons
                         documento['analise'][estado]['ruins'] = ruins
@@ -263,7 +307,7 @@ class novoCliente:
             auxChaves.append(chave)
         return auxChaves
 
-    def novoCliente(nome, tags):
+    def novoCliente(nome, tags, ramos):
         #Lista de estados
         estados=['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO',
                 'MA', 'MT', 'MS','MG', 'PA', 'PB', 'PR', 'PE', 'PI',
@@ -279,7 +323,7 @@ class novoCliente:
         cliente = funcoesTwitter.montaDicionario(estados)
 
         cliente['nome'] = nome
-
+        cliente['ramos'] = ramos
         #Se nenhuma tag foi informada, gera as tags com base no nome
         if(not(tags)):
             tags = geraTags(nome)
@@ -295,80 +339,122 @@ class novoCliente:
         #Insere no Banco
         mongoDB.insereDb (album, documento)
 
+class planilhas:
+    #Conecta ao google sheets
+    def conecta():
+        #Monta private key do google
+        var_amb=os.environ["private_key"]   #Recebe a variável
+        dividido=var_amb.split("\\n")       #Divide onde tem \n
+        chave=""                            #Onde vamos remontar
+        for linha in dividido:
+            if (len(linha)>0):              #última linha é apenas ''
+                chave=chave+linha+"\n"
+        login = {                                                   #Google : Dados do API do Google
+        "type": os.environ['type'],
+        "private_key_id": os.environ['private_key_id'],
+        "private_key": chave,
+        "client_email": os.environ['client_email'],
+        "client_id": os.environ['client_id']}
 
-def planilha():
-#Vamos montar nossa private key do google
-    var_amb=os.environ["private_key"]   #Recebemos a variável
-    dividido=var_amb.split("\\n")       #Dividimos onde tem \n
-    chave=""                            #Onde vamos remontar
-    for linha in dividido:
-        if (len(linha)>0):              #Nossa última linha é apenas '' e queremos deixar assim
-            chave=chave+linha+"\n"
-    login = {                                                   #Google : Dados do API do Google
-    "type": os.environ['type'],
-    "private_key_id": os.environ['private_key_id'],
-    "private_key": chave,
-    "client_email": os.environ['client_email'],
-    "client_id": os.environ['client_id']}
+        #Lista das unidades federativas
+        UFs=['AC','AL','AP','AM','BA',  
+            'CE','DF','ES','GO','MA',
+            'MT','MS','MG','PA','PB',
+            'PR','PE','PI','RJ','RN',
+            'RS','RO','RR','SC','SP',
+            'SE','TO']
 
-    #Lista das unidades federativas
-    UFs=['AC','AL','AP','AM','BA',  
-        'CE','DF','ES','GO','MA',
-        'MT','MS','MG','PA','PB',
-        'PR','PE','PI','RJ','RN',
-        'RS','RO','RR','SC','SP',
-        'SE','TO']
+        #scope para adquirir um token de acesso
+        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
 
-    #Precisamos usar o scope ao adquirir um token de acesso
-    scope = ['https://spreadsheets.google.com/feeds',
-            'https://www.googleapis.com/auth/drive']
-
-    #Obtemos as credenciais
-    credenciais = ServiceAccountCredentials.from_json_keyfile_dict(login, scope)
-
-    google = gspread.authorize(credenciais)     #Conectamos
-
-    planilha = google.open("Clientes")      #Abrimos a pagina 1 do arquivo
-    
-    colecao = mongoDB.conectaBanco()   #Conectamos ao Mongo
-
-    clientes=colecao.find({})               #Então vamos pegar os dados do nosso banco de dados
-
-    #Vamos percorrer os clientes
-    for cliente in clientes:
-        #Vamos pegar a folha correspondente
-        nome=cliente['nome']        #Nome do nosso cliente
-        folha=planilha.worksheet(nome)
-        time.sleep(1.05)
-        print(nome)
-        #Vamos checar estado por estado
-        c=2     #Contador da linha
-        for UF in UFs:
-            total=cliente['analise'][UF]['quantidade'] #Quantidade total de tuites
-            bons  = cliente['analise'][UF]['bons'] #Quantidade total de bons para aquela empresa
-            ruins = cliente['analise'][UF]['ruins'] #Quantidade total de tuites
-            neutros = cliente['analise'][UF]['neutros'] #Quantidade total de tuites
-
-            soma=0      #Vamos somar os tuites
-            for tui in cliente['tweets']:
-                if (tui['estado']==UF):
-                    #print(tui['resultado'])
-                    soma=soma+int(tui['resultado'])
-                
-            if (total!=0):
-                media=soma/float(total)
-            else:
-                media=0
-            folha.update_cell(c, 6,neutros)               #Atualizar os neutros
-            time.sleep(1.05)  
-            folha.update_cell(c, 5,ruins)               #Atualizar os ruins
-            time.sleep(1.05)    
-            folha.update_cell(c, 4,bons)               #Atualizar  os bons
-            time.sleep(1.05)    
-            folha.update_cell(c, 3,total)               #Atualizar a quantidade
-            time.sleep(1.05)
-            folha.update_cell(c, 2,media)               #Atualizar a media
-            time.sleep(1.05)
-            c=c+1   #Contador
+        #Obtem as credenciais
+        credenciais = ServiceAccountCredentials.from_json_keyfile_dict(login, scope)
         
-      
+        return gspread.authorize(credenciais)     #retorna a conexão
+
+    def planilha():
+        #Conecta ao google sheets
+        google = planilha.conecta()
+
+        planilha = google.open("Clientes")      #Abre o arquivo
+        
+        colecao = mongoDB.conectaBanco()   #Conecta ao Mongo
+
+        clientes=colecao.find({})               #Busca clientes no Banco
+
+        #Vamos percorrer os clientes
+        for cliente in clientes:
+            #Vamos pegar a folha correspondente
+            nome=cliente['nome']        #Nome do nosso cliente
+            folha=planilha.worksheet(nome)
+            time.sleep(1.05)
+            print(nome)
+            #Vamos checar estado por estado
+            c=2     #Contador da linha
+            for UF in UFs:
+                total=cliente['analise'][UF]['quantidade'] #Quantidade total de tuites
+                bons  = cliente['analise'][UF]['bons'] #Quantidade total de bons para aquela empresa
+                ruins = cliente['analise'][UF]['ruins'] #Quantidade total de tuites
+                neutros = cliente['analise'][UF]['neutros'] #Quantidade total de tuites
+
+                soma=0      #Vamos somar os tuites
+                for tui in cliente['tweets']:
+                    if (tui['estado']==UF):
+                        #print(tui['resultado'])
+                        soma=soma+int(tui['resultado'])
+                    
+                if (total!=0):
+                    media=soma/float(total)
+                else:
+                    media=0
+                linha = [UF, media, total, bons, ruins, neutros]
+                folha.insert_row(linha, c)
+                time.sleep(1.5)
+                # folha.update_cell(c, 6,neutros)               #Atualizar os neutros
+                # time.sleep(1.05)  
+                # folha.update_cell(c, 5,ruins)               #Atualizar os ruins
+                # time.sleep(1.05)    
+                # folha.update_cell(c, 4,bons)               #Atualizar  os bons
+                # time.sleep(1.05)    
+                # folha.update_cell(c, 3,total)               #Atualizar a quantidade
+                # time.sleep(1.05)
+                # folha.update_cell(c, 2,media)               #Atualizar a media
+                # time.sleep(1.05)
+                c=c+1   #Contador
+ # Com base no banco cria a tabela com tweets
+    def tweetsBanco():
+        #Conecta ao google sheet
+        google = planilha.conecta()     
+        #Especifica o arquivo a ser aberto
+        planilha = google.open("Tweets")
+        #Folha do arquivo aberto
+        folha=planilha.worksheet('Tweets')
+        time.sleep(1.05)
+        colecao = mongoDB.conectaBanco()   #Conectamos ao Mongo
+
+        clientes=colecao.find({})
+        c=2     #Contador da linha
+        for cliente in clientes:
+            #Vamos pegar a folha correspondente
+            nome=cliente['nome']        #Nome do nosso cliente
+            print(nome)
+            #Vamos utilizar cada tweet de todos os clientes
+            
+            for tweet in cliente['tweets']:
+                data = dt.datetime.strptime(tweet['data'], '%a %b %d %H:%M:%S +0000 %Y').date()
+                # folha.update_cell(c, 5,tweet['resultado'])               #Resultado
+                # time.sleep(1.1)
+                # folha.update_cell(c, 4,str(data))               #Data
+                # time.sleep(1.1)
+                # folha.update_cell(c, 3,tweet['estado'])               #Estado
+                # time.sleep(1.05)
+                # folha.update_cell(c, 2,nome)               #Empresa
+                # time.sleep(1.05)
+                # folha.update_cell(c, 1,tweet['id'])               #Insere ID
+                # time.sleep(1.05)
+                linha = [tweet['id'], nome, tweet['estado'], str(data), tweet['resultado']]
+                folha.insert_row(linha, c)
+                time.sleep(1.5)
+                print(c)
+                c=c+1   #Contador
+                
