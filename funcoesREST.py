@@ -4,7 +4,6 @@ import json
 import requests
 from config import *
 from bson.objectid import ObjectId
-from googletrans import Translator
 import sys
 import calendar
 import time
@@ -109,7 +108,6 @@ class funcoesTwitter:
 
         #Tenta buscar Tweets, senÃ£o espera os 15 min  tenta novamente        
         try:
-            print('try')
             twittes = requests.get('https://api.twitter.com/1.1/search/tweets.json', params=carga, auth=auth).json()
             aux = twittes["statuses"]
         except:
@@ -120,9 +118,9 @@ class funcoesTwitter:
                 #Ve o tempo em segundos desde 1970
             tempo_reset=int(resultado['resources']['search']['/search/tweets']['reset'])    #Pegamos o tempo esperado pro prÃ³ximo reset
             tempo_atual=calendar.timegm(time.gmtime())                                      #O tempo atual
-            espera=tempo_reset-tempo_atual+15                                               #Tempo necessÃ¡rio mais 10 segundos
+            espera=tempo_reset-tempo_atual+10                                               #Tempo necessÃ¡rio mais 10 segundos
             print('Aguardando '+str(espera)+' segundos.')
-            time.sleep(espera)        
+            time.sleep(900)        
             twittes = requests.get('https://api.twitter.com/1.1/search/tweets.json', params=carga, auth=auth).json()
             
         #cria variavel para anotar o Ãºltimo tweet
@@ -134,8 +132,10 @@ class funcoesTwitter:
                 if(ultimo==0):
                     #O primeiro tweet que chega Ã© o mais novo, logo pegamos o id
                     ultimo = twitte['id_str']
-                #cria o dicionario com as informaÃ§Ãµes desejada
-                dicionario = {'usuario':twitte['user']['name'],'id': twitte['id_str'] ,'estado':estado,'data':twitte['created_at'],'resultado':0, 'ironia': '','tweet':twitte['full_text']}
+                #Converte o formato da data antes de colocar no banco
+                data = str(dt.datetime.strptime(twitte['created_at'], '%a %b %d %H:%M:%S +0000 %Y').date())
+                #cria o dicionario com as informaÃ§Ãµes desejada   
+                dicionario = {'usuario':twitte['user']['name'],'id': twitte['id_str'] ,'estado':estado,'data':data,'resultado':0, 'ironia': '','tweet':twitte['full_text']}
                 tw.append(dicionario)
         #Retorna o dicionario com todos os twittes e o Ãºltimo ID
         return (tw, ultimo)
@@ -165,7 +165,7 @@ class analises:
 
     def analisaSentimentosMC(empresa, tweets, bons, ruins, neutros):
         url = "http://api.meaningcloud.com/sentiment-2.1"
-
+        # print('Analisa' + str(len(tweets))
         #Conecta ao google sheets
         google = planilhas.conecta()
         #Define a planilha e a folha a serem utilizadas
@@ -178,9 +178,7 @@ class analises:
                 linha.append(tweet['id'])
                 linha.append(empresa)
                 linha.append(tweet['estado'])
-                #Transforma o formato da data para um formato aceitável no tableau
-                data = dt.datetime.strptime(tweet['data'], '%a %b %d %H:%M:%S +0000 %Y').date()
-                linha.append(str(data))   
+                linha.append(tweet['data'])   
 
                 carga = authMeaningCloud(tweet['tweet'])
                 headers = {'content-type': 'application/x-www-form-urlencoded'}
@@ -227,7 +225,7 @@ class analises:
                     linha.append(resultado)
                     linha.append("Neutro")
                 tweet['ironia']= sentimento['irony']
-                print(linha)
+                #print(linha)
                 folha.append_row(linha)
                 time.sleep(1.05)
         return (tweets,bons, ruins, neutros)
@@ -260,9 +258,9 @@ class atualiza:
             documento = atualiza.atualizaCliente(empresa, cliente, estados, apiTwitter, quantidade)
             #Escreve o cliente atualizado no banco
             mongoDB.atualizaCliente(album, empresa, documento)
-            print('escreveu' + str(aux))
+            print('Escreveu')
             aux+=1
-
+    
     def atualizaCliente(empresa, documento, estados, apiTwitter, quantidade):
         #Define chaves de busca com base no banco
         chaves = documento['tags']
@@ -270,7 +268,7 @@ class atualiza:
                 query = funcoesTwitter.constroiQuery(estado, chaves)
                 ide = documento['analise'][estado]['ultimoId']
                 tweets, ultimo = funcoesTwitter.buscaTwittes(query, apiTwitter, quantidade, ide, estado)
-                print( documento['nome'] + '  ' + estado + ' : ' + str(len(tweets)))
+                #print( documento['nome'] + '  ' + estado + ' : ' + str(len(tweets)))
                 if(len(tweets)!=0):
                         #Atualiza o Ãºltimo id
                         documento['analise'][estado]['ultimoId'] = ultimo
@@ -296,18 +294,33 @@ class novoCliente:
     def geraTags(chaves):
         auxChaves = []
         for chave in chaves:
-            if ' ' in chave:
-                auxChaves.append('#' + chave.replace(' ', ''))
-                auxChaves.append('#' + chave.replace(' ', '_'))
-                auxChaves.append('@' + chave.replace(' ', '_'))
+            if ' ' in chaves:
+                chaveTudoJunto = chaves.replace(' ', '')
+                chaveComUnderline = chaves.replace(' ', '_')
+                
+                if (('#'+chaveTudoJunto) not in auxChaves):
+                    auxChaves.append('#'+chaveTudoJunto)
+                if (('@'+chaveTudoJunto) not in auxChaves):
+                    auxChaves.append('@'+chaveTudoJunto)
+                if (('#'+chaveComUnderline) not in auxChaves):
+                    auxChaves.append('#'+chaveComUnderline)
+                if (('@'+chaveComUnderline) not in auxChaves):
+                    auxChaves.append('@'+chaveComUnderline)
             else:
-                auxChaves.append('#'+chave)
-                auxChaves.append('@'+chave)
-
-            auxChaves.append(chave)
+                if (('#'+chaves) not in auxChaves):
+                    auxChaves.append('#'+chaves)
+                if (('@'+chaves) not in auxChaves):
+                    auxChaves.append('@'+chaves)
         return auxChaves
 
     def novoCliente(nome, tags, ramos):
+        if ' ' in ramos:
+            ramos = ramos.replace(' ', '')
+        ramos = ramos.split(',')
+        if ' ' in tags:
+            tags = tags.replace(' ', '')
+        tags = tags.split(',')
+
         #Lista de estados
         estados=['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO',
                 'MA', 'MT', 'MS','MG', 'PA', 'PB', 'PR', 'PE', 'PI',
@@ -324,20 +337,26 @@ class novoCliente:
 
         cliente['nome'] = nome
         cliente['ramos'] = ramos
+        print (type(cliente['ramos']))
+        print (ramos)
         #Se nenhuma tag foi informada, gera as tags com base no nome
-        if(not(tags)):
-            tags = geraTags(nome)
-        for tag in tags:
-            cliente['tags'].append(tag)
-                
+        if '' in tags:
+            tags = novoCliente.geraTags(nome)
+        cliente['tags'] = tags
+
+        print(cliente['nome'])        
+        print(cliente['tags'])
         #Atualiza cliente com base em novos tweets e analises
-        documento = atualiza.atualizaCliente(cliente, estados, apiTwitter, quantidade)
+        documento = atualiza.atualizaCliente(nome, cliente, estados, apiTwitter, quantidade)
 
         #Conecta no Banco
         album = mongoDB.conectaBanco()
 
         #Insere no Banco
         mongoDB.insereDb (album, documento)
+
+        print("Empresa cadastrada")
+        sys.stdout.flush()
 
 class planilhas:
     #Conecta ao google sheets
@@ -441,7 +460,6 @@ class planilhas:
             #Vamos utilizar cada tweet de todos os clientes
             
             for tweet in cliente['tweets']:
-                data = dt.datetime.strptime(tweet['data'], '%a %b %d %H:%M:%S +0000 %Y').date()
                 # folha.update_cell(c, 5,tweet['resultado'])               #Resultado
                 # time.sleep(1.1)
                 # folha.update_cell(c, 4,str(data))               #Data
@@ -452,9 +470,12 @@ class planilhas:
                 # time.sleep(1.05)
                 # folha.update_cell(c, 1,tweet['id'])               #Insere ID
                 # time.sleep(1.05)
-                linha = [tweet['id'], nome, tweet['estado'], str(data), tweet['resultado']]
+                linha = [tweet['id'], nome, tweet['estado'], tweet['data'], tweet['resultado']]
                 folha.insert_row(linha, c)
                 time.sleep(1.5)
                 print(c)
                 c=c+1   #Contador
                 
+                
+        
+      
